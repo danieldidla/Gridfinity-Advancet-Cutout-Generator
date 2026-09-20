@@ -1,0 +1,53 @@
+# podman-compose up -d   (or docker compose up -d)
+#
+# The API and the worker run the same image with different commands. They talk
+# through the SQLite database on the shared volume, which is why both mount it.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/gridfinity-cutout:latest
+    container_name: gridfinity-cutout-app
+    restart: unless-stopped
+    ports:
+      - "${GCG_PORT:-8000}:8000"
+    volumes:
+      - gridfinity-data:/data
+    environment:
+      GCG_DATA_DIR: /data
+      GCG_SECRET_KEY: ${GCG_SECRET_KEY:-}
+      GCG_ALLOW_REGISTRATION: ${GCG_ALLOW_REGISTRATION:-true}
+      GCG_MAX_UPLOAD_MB: ${GCG_MAX_UPLOAD_MB:-40}
+      GCG_APP_NAME: ${GCG_APP_NAME:-Gridfinity Cutout Generator}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: localhost/gridfinity-cutout:latest
+    container_name: gridfinity-cutout-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    volumes:
+      - gridfinity-data:/data
+    environment:
+      GCG_DATA_DIR: /data
+      GCG_SECRET_KEY: ${GCG_SECRET_KEY:-}
+      GCG_SCAN_VOXEL_MM: ${GCG_SCAN_VOXEL_MM:-0.5}
+    depends_on:
+      - app
+    # Reconstruction saturates every core it is given. If a running scan makes
+    # the editor stutter, cap the worker -- podman-compose ignores `cpus:`, so
+    # do it on the container instead:
+    #   podman update --cpus 10 gridfinity-cutout-worker
+
+volumes:
+  gridfinity-data:
