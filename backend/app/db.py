@@ -45,4 +45,9 @@ def get_db() -> Iterator[Session]:
 
 def init_db() -> None:
     from . import models  # noqa: F401  (registers the tables)
+    from . import migrations
+
     Base.metadata.create_all(engine)
+    # create_all leaves existing tables alone, so an update that adds a column
+    # has to say so explicitly.
+    migrations.apply(engine)

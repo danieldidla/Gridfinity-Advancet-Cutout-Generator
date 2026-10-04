@@ -38,12 +38,17 @@ def _set_cookie(response: Response, token: str) -> None:
 def info(db: Session = Depends(get_db)) -> ServerInfo:
     settings = get_settings()
     count = _user_count(db)
+    from ..scan import carve
+    from ..services import segment
+
     return ServerInfo(
         app_name=settings.app_name,
         # the very first account can always be created, otherwise nobody could
         allow_registration=settings.allow_registration or count == 0,
         has_users=count > 0,
         max_upload_mb=settings.max_upload_mb,
+        ai_segmentation=segment.ai_available(settings.segmentation_model),
+        reconstruction=carve.reconstruction_available(),
     )
 
 

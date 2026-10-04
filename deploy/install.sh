@@ -15,10 +15,15 @@ PORT="${PORT:-8000}"
 HTTP_PORT="${HTTP_PORT:-80}"
 SERVER_NAME="${SERVER_NAME:-_}"
 INSTALL_NGINX="${INSTALL_NGINX:-yes}"
-# The guided 3D capture needs SciPy and scikit-image, which together are larger
-# than everything else put together. Off by default so a small container stays
-# small; the application says so plainly where the feature would be used.
-WITH_SCAN="${WITH_SCAN:-no}"
+# The guided 3D capture. On by default; WITH_SCAN=no drops SciPy and
+# scikit-image and about 220 MB with them, and the application then says so
+# where the feature would be used.
+WITH_SCAN="${WITH_SCAN:-yes}"
+# The segmentation model behind the "KI" and "Hybrid" tracing engines. About
+# 170 MB, fetched once. WITH_AI=no leaves the paper model, which is the better
+# of the two on most photographs anyway.
+WITH_AI="${WITH_AI:-yes}"
+AI_MODEL="${AI_MODEL:-u2net}"
 # Every dependency ships a prebuilt wheel for amd64 and arm64, so no toolchain
 # is installed. On another architecture, re-run with WITH_BUILD_TOOLS=yes.
 WITH_BUILD_TOOLS="${WITH_BUILD_TOOLS:-no}"
@@ -91,7 +96,7 @@ python3 -m venv "${APP_DIR}/.venv"
 REQUIREMENTS="${APP_DIR}/backend/requirements.txt"
 if [[ "${WITH_SCAN}" == "yes" ]]; then
   REQUIREMENTS="${APP_DIR}/backend/requirements-scan.txt"
-  log "3D-Aufnahme wird mitinstalliert (zusätzlich rund 220 MB)"
+  log "Mit 3D-Aufnahme"
 else
   log "Ohne 3D-Aufnahme (später mit WITH_SCAN=yes nachrüstbar)"
 fi
@@ -133,6 +138,18 @@ if [[ "${SLIM}" == "yes" ]]; then
 fi
 
 mkdir -p "${DATA_DIR}"
+
+if [[ "${WITH_AI}" == "yes" ]]; then
+  if "${APP_DIR}/.venv/bin/pip" install --quiet --no-cache-dir onnxruntime; then
+    # A failed download is not a failed installation: the paper model works
+    # without it, and the interface says which engines are available.
+    bash "${APP_DIR}/deploy/fetch-models.sh" "${DATA_DIR}/models" "${AI_MODEL}" \
+      || warn "Modell konnte nicht geladen werden - die Engines „KI“ und „Hybrid“ fehlen."
+  else
+    warn "onnxruntime konnte nicht installiert werden - nur das Papiermodell steht bereit."
+  fi
+fi
+
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${APP_DIR}"
 chmod 750 "${DATA_DIR}"
 
@@ -252,6 +269,10 @@ if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
   if [[ "${WITH_SCAN}" != "yes" ]]; then
     echo "  3D-Aufnahme ist nicht eingerichtet. Nachrüsten:"
     echo "    sudo WITH_SCAN=yes bash deploy/install.sh"
+  fi
+  if [[ "${WITH_AI}" == "yes" && ! -s "${DATA_DIR}/models/${AI_MODEL}.onnx" ]]; then
+    echo "  Erkennungsmodell fehlt. Nachholen:"
+    echo "    bash deploy/fetch-models.sh ${DATA_DIR}/models ${AI_MODEL}"
   fi
 else
   warn "Der Dienst antwortet noch nicht. Bitte prüfen:"

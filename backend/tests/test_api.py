@@ -91,8 +91,10 @@ def test_photo_to_cutout(account):
     photo, _ = synthetic_photo()
     blob = cv2.imencode(".jpg", photo)[1].tobytes()
 
-    uploaded = account.post(f"/api/projects/{project['id']}/images",
-                            files={"file": ("foto.jpg", blob, "image/jpeg")}).json()
+    response = account.post(f"/api/projects/{project['id']}/images",
+                            files={"files": ("foto.jpg", blob, "image/jpeg")})
+    assert response.status_code == 201
+    uploaded = response.json()["images"][0]
     assert uploaded["corners"] is not None
 
     rectified = account.post(
@@ -141,8 +143,56 @@ def test_board_pdf_is_a4(account):
 def test_upload_rejects_rubbish(account):
     project = account.post("/api/projects", json={"name": "Müll"}).json()
     response = account.post(f"/api/projects/{project['id']}/images",
-                            files={"file": ("x.jpg", b"not an image", "image/jpeg")})
+                            files={"files": ("x.jpg", b"not an image", "image/jpeg")})
     assert response.status_code == 400
+
+
+def test_upload_takes_a_batch_and_reports_what_it_skipped(account):
+    """Photographs arrive from a phone in bulk; one bad file must not sink the lot."""
+    import cv2
+
+    from .test_vision import synthetic_photo
+
+    project = account.post("/api/projects", json={"name": "Stapel"}).json()
+    photo, _ = synthetic_photo()
+    good = cv2.imencode(".jpg", photo)[1].tobytes()
+
+    response = account.post(f"/api/projects/{project['id']}/images", files=[
+        ("files", ("a.jpg", good, "image/jpeg")),
+        ("files", ("kaputt.jpg", b"not an image", "image/jpeg")),
+        ("files", ("b.jpg", good, "image/jpeg")),
+    ])
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body["images"]) == 2
+    assert len(body["failed"]) == 1
+    assert body["failed"][0]["filename"] == "kaputt.jpg"
+
+    listed = account.get(f"/api/projects/{project['id']}/images").json()
+    assert len(listed) == 2
+
+
+def test_photos_carry_a_note_and_a_processed_flag(account):
+    """A photo taken on a phone is worked on later, so it has to be findable."""
+    import cv2
+
+    from .test_vision import synthetic_photo
+
+    project = account.post("/api/projects", json={"name": "Notizen"}).json()
+    photo, _ = synthetic_photo()
+    blob = cv2.imencode(".jpg", photo)[1].tobytes()
+    image = account.post(f"/api/projects/{project['id']}/images",
+                         files={"files": ("c.jpg", blob, "image/jpeg")}).json()["images"][0]
+    assert image["note"] == "" and image["processed"] is False
+
+    updated = account.patch(
+        f"/api/projects/{project['id']}/images/{image['id']}",
+        json={"note": "Messschieber", "processed": True}).json()
+    assert updated["note"] == "Messschieber"
+    assert updated["processed"] is True
+
+    reloaded = account.get(f"/api/projects/{project['id']}/images").json()[0]
+    assert reloaded["note"] == "Messschieber"
 
 
 def test_stats_warn_when_a_cutout_breaches_the_wall(account):

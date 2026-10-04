@@ -5,6 +5,8 @@ export interface ServerInfo {
   allow_registration: boolean
   has_users: boolean
   max_upload_mb: number
+  ai_segmentation: boolean
+  reconstruction: boolean
 }
 
 export interface BinSettings {
@@ -85,6 +87,39 @@ export interface ImageInfo {
   px_per_mm: number
   has_rectified: boolean
   trace: Record<string, number>
+  note: string
+  processed: boolean
+  settings: TraceSettings | null
+  created_at: string | null
+}
+
+export type TraceEngine = 'hybrid' | 'paper' | 'ai' | 'grabcut'
+
+export interface TraceSettings {
+  engine: TraceEngine
+  sensitivity: number
+  shadow_tolerance: number
+  texture_suppression_mm: number
+  neutral_objects: boolean
+  illumination_order: number
+  ai_threshold: number
+  refine: boolean
+  refine_band_mm: number
+  close_mm: number
+  open_mm: number
+  fill_holes: boolean
+  min_area_mm2: number
+  smooth_mm: number
+  simplify_mm: number
+  include_holes: boolean
+  min_hole_area_mm2: number
+  keep_largest: boolean
+  brush: number
+}
+
+export interface UploadResult {
+  images: ImageInfo[]
+  failed: { filename: string; reason: string }[]
 }
 
 export interface CoverageCell { sector: number; band: number; covered: boolean }
@@ -143,6 +178,8 @@ export interface TraceResult {
   height_mm: number
   area_mm2: number
   mask_preview: string | null
+  engine_used: string
+  took_ms: number
 }
 
 export interface Job {

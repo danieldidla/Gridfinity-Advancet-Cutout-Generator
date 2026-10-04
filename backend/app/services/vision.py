@@ -72,20 +72,96 @@ def detect_sheet(image: np.ndarray) -> list[tuple[float, float]] | None:
                                        cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < area_total * 0.05:
+            if area < area_total * 0.05 or area >= area_total * 0.98:
                 continue
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
-            if len(approx) != 4 or not cv2.isContourConvex(approx):
+            quad = _as_quadrilateral(contour)
+            if quad is None:
                 continue
-            quad = order_corners(approx)
-            if _corner_sanity(quad) and area < area_total * 0.98:
+            quad = _refine_corners(contour, quad)
+            if _corner_sanity(quad):
                 candidates.append((area, quad))
 
     if not candidates:
         return None
     _, best = max(candidates, key=lambda c: c[0])
     return [(float(x) * inv, float(y) * inv) for x, y in best]
+
+
+def _as_quadrilateral(contour: np.ndarray) -> np.ndarray | None:
+    """Reduce a contour to four corners.
+
+    A single simplification tolerance is not enough: the same sheet comes back
+    as five corners at one value and four at the next, so the tolerance is
+    swept until a convex quadrilateral falls out.
+    """
+    hull = cv2.convexHull(contour)
+    perimeter = cv2.arcLength(hull, True)
+    for epsilon in (0.01, 0.015, 0.02, 0.03, 0.04, 0.06, 0.08, 0.10):
+        approx = cv2.approxPolyDP(hull, epsilon * perimeter, True)
+        if len(approx) == 4 and cv2.isContourConvex(approx):
+            return order_corners(approx)
+    return None
+
+
+def _refine_corners(contour: np.ndarray, quad: np.ndarray) -> np.ndarray:
+    """Put the corners back where the edges say they are.
+
+    Simplification picks corners from the points it happens to keep, which can
+    sit a long way off when it merges a spurious vertex. Fitting a line to each
+    side and intersecting neighbours uses every point along the edge instead,
+    and the sheet's corners are what set the scale for every measurement that
+    follows.
+    """
+    points = contour.reshape(-1, 2).astype(np.float64)
+    lines: list[tuple[np.ndarray, np.ndarray]] = []
+
+    for i in range(4):
+        start, end = quad[i], quad[(i + 1) % 4]
+        edge = end - start
+        length = float(np.linalg.norm(edge))
+        if length < 1e-6:
+            return quad
+        direction = edge / length
+        normal = np.array([-direction[1], direction[0]])
+
+        # points lying along this side, with the corners themselves left out
+        offset = points - start
+        along = offset @ direction
+        across = np.abs(offset @ normal)
+        near = (along > length * 0.12) & (along < length * 0.88) & \
+               (across < max(4.0, length * 0.03))
+        if near.sum() < 8:
+            lines.append((np.asarray(start, np.float64), direction))
+            continue
+        vx, vy, x0, y0 = cv2.fitLine(points[near].astype(np.float32),
+                                     cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+        lines.append((np.array([x0, y0]), np.array([vx, vy])))
+
+    refined = []
+    for i in range(4):
+        previous = lines[(i - 1) % 4]
+        current = lines[i]
+        point = _intersect(previous, current)
+        refined.append(point if point is not None else quad[i])
+    out = np.asarray(refined, np.float32)
+
+    # a refinement that moves a corner absurdly far has gone wrong; keep the
+    # original rather than trust it
+    if np.max(np.linalg.norm(out - quad, axis=1)) > 0.25 * cv2.arcLength(
+            quad.astype(np.float32).reshape(-1, 1, 2), True):
+        return quad
+    return out
+
+
+def _intersect(a: tuple[np.ndarray, np.ndarray],
+               b: tuple[np.ndarray, np.ndarray]) -> np.ndarray | None:
+    (pa, da), (pb, db) = a, b
+    denominator = da[0] * db[1] - da[1] * db[0]
+    if abs(denominator) < 1e-9:
+        return None
+    diff = pb - pa
+    t = (diff[0] * db[1] - diff[1] * db[0]) / denominator
+    return pa + da * t
 
 
 def _candidate_masks(gray: np.ndarray):

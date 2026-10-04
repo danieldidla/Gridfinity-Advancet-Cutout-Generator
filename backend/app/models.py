@@ -79,6 +79,11 @@ class Image(Base):
     rectified_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     px_per_mm: Mapped[float] = mapped_column(Float, default=0.0)
     trace: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Photographs are taken on a phone and worked on later at a desk, so a
+    # photo carries its own note and the tracing settings it was last given.
+    note: Mapped[str] = mapped_column(String(200), default="")
+    settings: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     project: Mapped[Project] = relationship(back_populates="images")
