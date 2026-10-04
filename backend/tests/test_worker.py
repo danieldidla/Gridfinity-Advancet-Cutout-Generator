@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 
 trimesh = pytest.importorskip("trimesh")
+pytest.importorskip("scipy")
+pytest.importorskip("skimage")
 
 from app.db import SessionLocal
 from app.gridfinity import spec as S

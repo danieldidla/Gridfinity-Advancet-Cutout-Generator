@@ -164,4 +164,5 @@ export interface BoardInfo {
   azimuth_sectors: number
   elevation_bands: number[][]
   band_labels: string[]
+  reconstruction_available: boolean
 }

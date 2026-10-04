@@ -15,6 +15,8 @@ import numpy as np
 import pytest
 
 trimesh = pytest.importorskip("trimesh")
+pytest.importorskip("scipy")
+pytest.importorskip("skimage")
 
 from app.scan import board as board_module
 from app.scan import carve

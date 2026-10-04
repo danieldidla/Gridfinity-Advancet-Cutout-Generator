@@ -1,0 +1,11 @@
+# Optional: the guided 3D capture.
+#
+# Marching cubes and the voxel operations live in SciPy and scikit-image, and
+# together with their bundled BLAS they are about 220 MB -- more than the rest
+# of the installation. They are imported only when a reconstruction actually
+# runs, so leaving them out costs nothing but the 3D capture itself.
+
+-r requirements.txt
+
+scipy==1.15.0
+scikit-image==0.25.0

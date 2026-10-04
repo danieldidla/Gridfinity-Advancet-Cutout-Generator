@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import type { Coverage, Job, ScanInfo, ShotInfo } from '../lib/types'
+import type { BoardInfo, Coverage, Job, ScanInfo, ShotInfo } from '../lib/types'
 import CoverageWheel from './CoverageWheel'
 import { Banner, Modal, NumberField, Section, Spinner, Toggle } from './ui'
 
@@ -18,7 +18,15 @@ export default function ScanWizard({
 }: Props) {
   const [scanId, setScanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [board, setBoard] = useState<BoardInfo | null>(null)
   const scan = scans.find((s) => s.id === scanId) ?? null
+
+  // The reconstruction libraries are an optional install, so ask the server
+  // whether it can do the work before offering to start it.
+  useEffect(() => {
+    if (!open || board) return
+    api.boardInfo().then(setBoard).catch(() => undefined)
+  }, [open, board])
 
   const refresh = useCallback(async () => {
     try { onScansChanged(await api.listScans(projectId)) } catch { /* ignore */ }
@@ -39,8 +47,24 @@ export default function ScanWizard({
            title={scan ? `3D-Aufnahme · ${scan.name}` : '3D-Aufnahme'}>
       {error && <div className="mb-3"><Banner kind="error" onDismiss={() => setError(null)}>{error}</Banner></div>}
 
+      {board && !board.reconstruction_available && (
+        <div className="mb-3">
+          <Banner kind="warn">
+            Diese Installation kann keine 3D-Aufnahmen berechnen &ndash; SciPy und
+            scikit-image wurden nicht mitinstalliert (zusammen rund 220 MB).
+            Nachr&uuml;sten mit{' '}
+            <code className="rounded bg-ink-950/60 px-1">
+              pip install -r backend/requirements-scan.txt
+            </code>{' '}
+            und die Dienste neu starten. Fotos und Aussparungen funktionieren
+            unabh&auml;ngig davon.
+          </Banner>
+        </div>
+      )}
+
       {!scan ? (
         <Intro scans={scans} onCreate={create} onOpen={setScanId}
+               disabled={board ? !board.reconstruction_available : false}
                onDelete={async (id) => {
                  await api.deleteScan(projectId, id)
                  onScansChanged(scans.filter((s) => s.id !== id))
@@ -56,11 +80,12 @@ export default function ScanWizard({
 
 /* --------------------------------------------------------------- intro --- */
 
-function Intro({ scans, onCreate, onOpen, onDelete }: {
+function Intro({ scans, onCreate, onOpen, onDelete, disabled }: {
   scans: ScanInfo[]
   onCreate: () => void
   onOpen: (id: string) => void
   onDelete: (id: string) => Promise<void>
+  disabled: boolean
 }) {
   return (
     <div className="space-y-4">
@@ -85,7 +110,8 @@ function Intro({ scans, onCreate, onOpen, onDelete }: {
           <span>Berechnung starten. Das dauert je nach Bildzahl einige Minuten.</span></li>
       </ol>
 
-      <button type="button" className="btn-primary w-full" onClick={onCreate}>
+      <button type="button" className="btn-primary w-full" onClick={onCreate}
+              disabled={disabled}>
         Neue Aufnahme beginnen
       </button>
 

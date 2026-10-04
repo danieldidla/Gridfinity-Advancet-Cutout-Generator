@@ -44,6 +44,7 @@ def scan_board_info() -> dict:
         "azimuth_sectors": carve.AZIMUTH_SECTORS,
         "elevation_bands": [list(b) for b in carve.ELEVATION_BANDS],
         "band_labels": list(carve.BAND_LABELS),
+        "reconstruction_available": carve.reconstruction_available(),
     }
 
 
@@ -256,6 +257,15 @@ def reconstruct(scan_id: str, payload: ScanSettings | None = None,
                 db: Session = Depends(get_db),
                 user: User = Depends(current_user)) -> Job:
     scan = _get_scan(db, project, scan_id)
+    # Checked before anything else: someone whose install lacks the libraries
+    # should learn that now, not after shooting thirty photographs.
+    if not carve.reconstruction_available():
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED,
+            "Die 3D-Rekonstruktion ist in dieser Installation nicht eingerichtet "
+            "(SciPy und scikit-image fehlen). Fotos und Aussparungen "
+            "funktionieren unabhängig davon.")
+
     usable = [s for s in scan.shots if s.usable]
     if len(usable) < 8:
         raise HTTPException(

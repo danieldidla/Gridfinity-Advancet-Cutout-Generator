@@ -56,16 +56,84 @@ Zwei Wege, beide auf Debian 12/13 getestet. **Podman Compose** ist der
 einfachere; die **native Installation** kommt ohne Container-Laufzeit aus und
 passt gut in einen schlanken LXC.
 
-### Voraussetzungen
+### Was der Container braucht
 
-- Debian 12 oder 13 (LXC-Container, VM oder Blech)
-- 2 GB RAM für den normalen Betrieb, 4 GB empfohlen, wenn 3D-Aufnahmen
-  gerechnet werden
-- rund 2 GB Plattenplatz zuzüglich der eigenen Projektdaten
-- Für 3D-Aufnahmen: je mehr Kerne, desto besser. Auf einem i5-13500 dauert
-  eine Rekonstruktion aus 30 Bildern etwa zwei bis fünf Minuten.
+Alle Zahlen sind an dieser Installation gemessen, nicht geschätzt.
 
-Ein unprivilegierter LXC genügt; besondere Rechte braucht die Anwendung nicht.
+**Plattenplatz für das Programm** (unter `/opt/gridfinity-cutout`):
+
+| Variante | Größe |
+|---|---|
+| ohne 3D-Aufnahme (Vorgabe) | **342 MB** |
+| ohne 3D-Aufnahme, `SLIM=yes` | **321 MB** |
+| mit 3D-Aufnahme (`WITH_SCAN=yes`) | **560 MB** |
+| mit 3D-Aufnahme, `SLIM=yes` | **497 MB** |
+
+Fast alles davon sind NumPy, OpenCV und – beim 3D-Extra – SciPy und
+scikit-image. Der eigene Code samt gebautem Frontend sind 2 MB.
+
+**Systempakete:** rund 5 MB. Nur `python3-venv`, `curl`, `ca-certificates` und
+`nginx`; auf einem üblichen Debian-Template ist davon das meiste schon da.
+Bringt das Image kein Python mit, kommen etwa 67 MB dazu.
+
+> Die sonst übliche Zeile `libgl1 libglib2.0-0 libgomp1` ist hier **nicht**
+> nötig: Das headless-OpenCV-Wheel bringt ffmpeg, libpng und OpenBLAS selbst
+> mit, NumPy und SciPy ihr eigenes libgomp. Das spart 242 MB. Ebenso wenig
+> braucht es einen Compiler (`build-essential` samt Abhängigkeiten wären
+> 457 MB) – alle Pakete liegen als fertige Wheels für amd64 und arm64 vor.
+
+**Spitzenbedarf während der Installation.** Der Frontend-Build braucht
+vorübergehend deutlich mehr, als am Ende belegt bleibt:
+
+| | |
+|---|---|
+| Node.js + npm | ~140 MB |
+| `node_modules` | 224 MB |
+| npm-Cache (unter `/tmp`) | 52 MB |
+| **zusammen, danach wieder frei** | **~415 MB** |
+
+Das Skript räumt all das selbst wieder weg. Du brauchst den Platz also nur
+während der Installation – aber du brauchst ihn. Wenn der nicht da ist:
+Frontend auf einem anderen Rechner bauen (`npm install && npm run build`),
+den Ordner `frontend/dist` mitkopieren und mit `SKIP_FRONTEND_BUILD=yes`
+installieren. Node wird dann gar nicht erst eingerichtet.
+
+**Nutzdaten** (unter `/var/lib/gridfinity-cutout`):
+
+| | |
+|---|---|
+| Projekt mit einem Foto | 1–2,5 MB (Original + entzerrte Ansicht) |
+| eine 3D-Aufnahme | 10–30 MB (24–40 Fotos à 0,4–0,75 MB) |
+| rekonstruiertes Netz + Voxelgitter | 1–3 MB |
+| Datenbank | wenige hundert kB |
+
+Alte 3D-Aufnahmen lassen sich nach dem Übernehmen der Form löschen; das Netz
+bleibt erhalten, die Einzelfotos verschwinden.
+
+**Arbeitsspeicher**, als getrennte Prozesse gemessen:
+
+| | |
+|---|---|
+| API, im Betrieb | 250–300 MB |
+| Worker, untätig | ~100 MB |
+| Worker, Spitze bei 40 Fotos à 2000 px | **339 MB** |
+
+**Empfehlung**
+
+| | Platte | RAM | Kerne |
+|---|---|---|---|
+| nur Fotos | 2 GB | 1 GB | 2 |
+| mit 3D-Aufnahme | 3 GB | 2 GB | 4+ |
+| sehr knapp (Frontend extern gebaut) | 1,5 GB | 1 GB | 2 |
+
+Die Plattenangaben enthalten das Debian-Grundsystem (je nach Template
+0,3–0,5 GB), den Installationsspitzenwert und Luft für Projekte. Ein
+unprivilegierter LXC genügt; besondere Rechte braucht die Anwendung nicht.
+
+Zur Rechenzeit: Eine Rekonstruktion aus 40 Bildern dauerte auf 4 Kernen
+18 Sekunden – allerdings mit synthetischen, kontrastreichen Aufnahmen. Mit
+echten Fotos kosten Board-Erkennung und Freistellung deutlich mehr; auf einem
+i5-13500 ist mit einigen Minuten zu rechnen.
 
 ### Weg A – Podman Compose (empfohlen)
 
@@ -79,6 +147,12 @@ cp .env.example .env
 python3 -c "import secrets; print('GCG_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
 
 podman-compose up -d --build
+```
+
+Das Image enthält die 3D-Aufnahme. Ohne sie wird es rund 220 MB kleiner:
+
+```bash
+podman-compose build --build-arg WITH_SCAN=no && podman-compose up -d
 ```
 
 Der erste Build dauert einige Minuten, weil das Frontend übersetzt wird.
@@ -118,6 +192,16 @@ cd Gridfinity-Advancet-Cutout-Generator
 sudo bash deploy/install.sh
 ```
 
+Das installiert **ohne** die 3D-Aufnahme, weil deren Bibliotheken mehr Platz
+brauchen als alles andere zusammen. Mit:
+
+```bash
+sudo WITH_SCAN=yes bash deploy/install.sh
+```
+
+Das lässt sich jederzeit nachholen – die Anwendung sagt in der Oberfläche
+deutlich, wenn die Funktion fehlt, und alles andere arbeitet davon unberührt.
+
 Das Skript installiert die Systempakete, legt das Dienstkonto `gridfinity` an,
 richtet unter `/opt/gridfinity-cutout` eine virtuelle Python-Umgebung ein, baut
 das Frontend, schreibt zwei systemd-Units und stellt nginx davor. Am Ende
@@ -130,11 +214,24 @@ Das Skript lässt sich gefahrlos erneut ausführen, um zu aktualisieren:
 cd Gridfinity-Advancet-Cutout-Generator && git pull && sudo bash deploy/install.sh
 ```
 
-Anpassen lässt sich das über Umgebungsvariablen:
+Alle Schalter des Installationsskripts:
+
+| Variable | Vorgabe | Wirkung |
+|---|---|---|
+| `WITH_SCAN` | `no` | 3D-Aufnahme mitinstallieren (+218 MB) |
+| `SLIM` | `no` | Test-Suites der Python-Pakete entfernen (−21/−63 MB) |
+| `SKIP_FRONTEND_BUILD` | `no` | Fertiges `frontend/dist` übernehmen, kein Node |
+| `KEEP_BUILD_DEPS` | `no` | `node_modules` und Node behalten (für Entwicklung) |
+| `WITH_BUILD_TOOLS` | `no` | Compiler mitinstallieren (nur ohne fertige Wheels) |
+| `INSTALL_NGINX` | `yes` | Reverse Proxy einrichten |
+| `PORT` / `HTTP_PORT` | `8000` / `80` | Ports |
+| `SERVER_NAME` | `_` | Servername für nginx |
+| `APP_DIR` / `DATA_DIR` | `/opt/...` / `/var/lib/...` | Ablageorte |
+
+Beispiel für eine knapp bemessene Maschine, Frontend extern gebaut:
 
 ```bash
-sudo PORT=8080 HTTP_PORT=8080 SERVER_NAME=gridfinity.lan \
-     INSTALL_NGINX=no bash deploy/install.sh
+sudo SKIP_FRONTEND_BUILD=yes SLIM=yes bash deploy/install.sh
 ```
 
 Betrieb:
@@ -280,7 +377,10 @@ Alle Werte sind optional und werden als Umgebungsvariablen gesetzt – in
 ## Entwicklung
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+python3 -m venv .venv
+# requirements.txt genügt für alles außer der 3D-Aufnahme;
+# requirements-scan.txt nimmt SciPy und scikit-image dazu.
+.venv/bin/pip install -r backend/requirements-scan.txt
 cd frontend && npm install && cd ..
 
 # Terminal 1 – API
@@ -341,12 +441,17 @@ auf glänzendem Papier. Mattes Papier, mehr Licht, ruhig halten.
 beginnen; auf gleichmäßigen Untergrund achten. Der Schwellwert unter
 *Berechnung* steuert, wie viel als Objekt gilt.
 
+**Die 3D-Aufnahme lässt sich nicht starten.** Dann wurde ohne das Extra
+installiert. Die Oberfläche sagt das im Scan-Dialog; nachrüsten mit
+`sudo WITH_SCAN=yes bash deploy/install.sh`, dann die Dienste neu starten.
+
 **Der Worker arbeitet nicht.** Läuft er?
 `systemctl status gridfinity-cutout-worker` bzw. `podman-compose logs worker`.
 Ohne Worker bleiben Aufnahmen auf „wird berechnet“ stehen.
 
-**Der Container startet nicht.** Meist zu wenig Speicher beim Frontend-Build.
-Mit 2 GB RAM im LXC klappt es; ansonsten das Frontend außerhalb bauen.
+**Kein Platz mehr während der Installation.** Der Frontend-Build braucht
+vorübergehend rund 415 MB (siehe oben). Ausweg: das Frontend auf einem anderen
+Rechner bauen und mit `SKIP_FRONTEND_BUILD=yes` installieren.
 
 ---
 

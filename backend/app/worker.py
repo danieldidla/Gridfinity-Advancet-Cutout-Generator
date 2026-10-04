@@ -38,6 +38,8 @@ def reconstruct_scan(db, job: Job) -> dict:
     if scan is None:
         raise ValueError("Aufnahme existiert nicht mehr")
 
+    carve.require_reconstruction()
+
     settings = ScanSettings(**(scan.settings or {}))
     spec = board_module.DEFAULT_BOARD
 
@@ -51,13 +53,16 @@ def reconstruct_scan(db, job: Job) -> dict:
         db.add(scan)
         db.commit()
 
+    # Photographs are read one at a time and released again. Holding forty
+    # decoded 2000 px images would be some 350 MB of resident memory, which is
+    # the difference between this running in a small container and not; the
+    # masks alone are an order of magnitude smaller.
     note(0.02, "Bilder werden gelesen")
-    images: dict[int, np.ndarray] = {}
     detections: list[carve.Detection] = []
     for n, shot in enumerate(shots):
         image = storage.load_image(shot.storage_key)
-        images[n] = image
         detections.append(carve.detect(image, spec, n))
+        del image
         if n % 5 == 0:
             note(0.02 + 0.18 * (n + 1) / len(shots),
                  f"Board erkannt {n + 1}/{len(shots)}")
@@ -69,10 +74,12 @@ def reconstruct_scan(db, job: Job) -> dict:
     template = board_module.render_board(spec, px_per_mm=6.0, with_margin=False)
     masks: dict[int, np.ndarray] = {}
     for n, pose in enumerate(calib.poses):
+        image = storage.load_image(shots[pose.index].storage_key)
         masks[pose.index] = carve.object_mask(
-            images[pose.index], calib, pose, spec,
+            image, calib, pose, spec,
             threshold=settings.threshold, template=template,
             extend_beyond_board=settings.extend_beyond_board)
+        del image
         if n % 4 == 0:
             note(0.3 + 0.2 * (n + 1) / len(calib.poses),
                  f"Silhouette {n + 1}/{len(calib.poses)}")

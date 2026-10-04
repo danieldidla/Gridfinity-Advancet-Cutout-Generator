@@ -86,6 +86,30 @@ class CarveResult:
     warnings: list[str] = field(default_factory=list)
 
 
+# SciPy and scikit-image are only needed to turn a finished voxel grid into a
+# surface, and together they outweigh the rest of the installation. They stay
+# optional so a space-constrained install can skip them; everything else,
+# including the photo workflow, works without.
+RECONSTRUCTION_REQUIREMENTS = ("scipy", "skimage")
+
+
+def reconstruction_available() -> bool:
+    from importlib.util import find_spec
+
+    return all(find_spec(name) is not None
+               for name in RECONSTRUCTION_REQUIREMENTS)
+
+
+def require_reconstruction() -> None:
+    if reconstruction_available():
+        return
+    raise RuntimeError(
+        "Die 3D-Rekonstruktion ist in dieser Installation nicht eingerichtet. "
+        "Sie braucht SciPy und scikit-image: "
+        "'pip install -r backend/requirements-scan.txt' und danach die Dienste "
+        "neu starten.")
+
+
 def sharpness(image: np.ndarray) -> float:
     """Variance of the Laplacian: low means the shot is blurred."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
@@ -373,11 +397,13 @@ def carve(masks: dict[int, np.ndarray], calib: Calibration,
         raise ValueError("mindestens 3 auswertbare Ansichten notwendig")
 
     # Undistorting once turns every later projection into plain matrix algebra.
+    # Done in place: a second full set of masks would double the footprint of
+    # the largest thing this function holds.
     undistorted: dict[int, np.ndarray] = {}
     for pose in poses:
-        m = masks[pose.index]
         undistorted[pose.index] = cv2.undistort(
-            m, calib.camera_matrix, calib.dist_coeffs) > 127
+            masks[pose.index], calib.camera_matrix, calib.dist_coeffs) > 127
+        masks[pose.index] = None
 
     cx, cy = spec.centre
     half = extent_mm / 2.0

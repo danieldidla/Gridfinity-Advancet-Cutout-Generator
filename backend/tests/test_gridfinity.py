@@ -9,6 +9,8 @@ from app.gridfinity.assembly import build_model
 from app.gridfinity.bin_builder import build_bin
 from app.gridfinity.exporters import export_3mf, export_stl, to_trimesh
 
+from .conftest import needs_reconstruction
+
 
 def inner_contour(solid, z):
     polygons = [np.asarray(p) for p in solid.slice(z).to_polygons()]
@@ -188,6 +190,7 @@ def _write_voxel_scan(tmp_path, narrow_low: bool = True):
     return "meshes/scan.npz"
 
 
+@needs_reconstruction
 def test_upside_down_scan_is_turned_back_over(tmp_path):
     """The face the camera saw best has to end up on the pocket floor.
 
@@ -212,6 +215,7 @@ def test_upside_down_scan_is_turned_back_over(tmp_path):
         f"Tasche steht auf dem Kopf: unten {wide:.1f} mm, oben {narrow:.1f} mm"
 
 
+@needs_reconstruction
 def test_scan_pocket_sits_inside_the_bin(tmp_path):
     """A pocket that floats above the rim removes nothing at all."""
     key = _write_voxel_scan(tmp_path)
@@ -229,6 +233,7 @@ def test_scan_pocket_sits_inside_the_bin(tmp_path):
     assert result.volume() < shell.volume() - 1000
 
 
+@needs_reconstruction
 def test_open_top_removes_undercuts(tmp_path):
     """Without this the part cannot be dropped in from above."""
     key = _write_voxel_scan(tmp_path, narrow_low=False)

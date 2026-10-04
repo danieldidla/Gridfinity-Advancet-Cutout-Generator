@@ -12,12 +12,10 @@ RUN npm run build
 
 FROM docker.io/library/python:3.11-slim-bookworm AS runtime
 
-# OpenCV and trimesh need a handful of shared libraries even in headless form.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 \
-        libglib2.0-0 \
-        libgomp1 \
-        curl \
+# Only curl, for the healthcheck. The headless OpenCV wheel bundles its own
+# ffmpeg, libpng and OpenBLAS, and NumPy/SciPy ship their own libgomp, so the
+# usual libgl1/libglib2.0-0/libgomp1 trio would add about 240 MB for nothing.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -27,8 +25,15 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+# WITH_SCAN=no drops SciPy and scikit-image, and with them about 220 MB; the
+# 3D capture then reports itself unavailable and everything else works.
+ARG WITH_SCAN=yes
+COPY backend/requirements.txt backend/requirements-scan.txt ./backend/
+RUN if [ "$WITH_SCAN" = "yes" ]; then \
+        pip install --no-cache-dir -r backend/requirements-scan.txt; \
+    else \
+        pip install --no-cache-dir -r backend/requirements.txt; \
+    fi
 
 COPY backend/ ./backend/
 COPY --from=frontend /build/dist ./frontend/dist
