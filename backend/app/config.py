@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     scan_extent_mm: float = 160.0
 
     preview_cache_size: int = 24
+    segmentation_model: str = "u2net"
     cors_origins: str = ""
 
     @property
@@ -45,9 +46,13 @@ class Settings(BaseSettings):
     def meshes_dir(self) -> Path:
         return self.data_dir / "meshes"
 
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
+
     def ensure_dirs(self) -> None:
         for path in (self.data_dir, self.images_dir, self.scans_dir,
-                     self.meshes_dir):
+                     self.meshes_dir, self.models_dir):
             path.mkdir(parents=True, exist_ok=True)
 
     def resolved_database_url(self) -> str:

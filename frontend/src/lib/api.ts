@@ -1,6 +1,6 @@
 import type {
   BoardInfo, Coverage, ImageInfo, Job, ModelStats, Project, ProjectState,
-  ProjectSummary, ScanInfo, ServerInfo, ShotInfo, TraceResult, User,
+  ProjectSummary, ScanInfo, ServerInfo, ShotInfo, TraceResult, UploadResult, User,
 } from './types'
 
 export class ApiError extends Error {
@@ -61,11 +61,16 @@ export const api = {
   setThumbnail: (id: string, dataUrl: string) =>
     request<void>(`/api/projects/${id}/thumbnail`, { method: 'PUT', ...json({ data_url: dataUrl }) }),
 
-  uploadImage: (projectId: string, file: File) => {
+  uploadImages: (projectId: string, files: File[]) => {
     const form = new FormData()
-    form.append('file', file)
-    return request<ImageInfo>(`/api/projects/${projectId}/images`, { method: 'POST', body: form })
+    for (const file of files) form.append('files', file)
+    return request<UploadResult>(`/api/projects/${projectId}/images`,
+      { method: 'POST', body: form })
   },
+  updateImage: (projectId: string, imageId: string,
+                patch: { note?: string; processed?: boolean }) =>
+    request<ImageInfo>(`/api/projects/${projectId}/images/${imageId}`,
+      { method: 'PATCH', ...json(patch) }),
   imageUrl: (projectId: string, imageId: string, rectified = false) =>
     `/api/projects/${projectId}/images/${imageId}/file?rectified=${rectified}`,
   detectSheet: (projectId: string, imageId: string) =>

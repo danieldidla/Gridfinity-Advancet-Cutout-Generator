@@ -75,3 +75,32 @@ def test_outline_is_centred_on_the_origin():
 def test_rejects_unreadable_input():
     blank = np.full((400, 400, 3), 128, np.uint8)
     assert vision.detect_sheet(blank) is None
+
+
+def test_sheet_detection_survives_a_spurious_corner():
+    """A single simplification tolerance is not enough.
+
+    The contour of a photographed sheet often simplifies to five corners at one
+    tolerance and four at the next, and the tolerance that finally gives four
+    can put a corner a hundred pixels out. Detection sweeps the tolerance and
+    then fits each edge, because these four points set the scale for every
+    measurement the application makes.
+    """
+    photo, truth = synthetic_photo()
+    # JPEG, as every real photograph arrives
+    encoded = cv2.imencode(".jpg", photo, [int(cv2.IMWRITE_JPEG_QUALITY), 90])[1]
+    photo = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+
+    corners = vision.detect_sheet(photo)
+    assert corners is not None, "Blatt nicht erkannt"
+    error = max(np.linalg.norm(np.asarray(c) - t) for c, t in zip(corners, truth))
+    assert error < 12.0, f"Ecken {error:.1f} px daneben"
+
+
+def test_corner_refinement_declines_to_make_things_worse():
+    """A refinement that moves a corner wildly has misread the edge."""
+    contour = np.array([[[100, 100]], [[400, 110]], [[395, 400]], [[105, 395]]],
+                       dtype=np.int32)
+    quad = vision.order_corners(contour)
+    refined = vision._refine_corners(contour, quad)
+    assert np.max(np.abs(refined - quad)) < 30

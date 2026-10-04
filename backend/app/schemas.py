@@ -38,6 +38,8 @@ class ServerInfo(BaseModel):
     allow_registration: bool
     has_users: bool
     max_upload_mb: int
+    ai_segmentation: bool = False
+    reconstruction: bool = False
 
 
 # --- project document -------------------------------------------------------
@@ -202,6 +204,21 @@ class ImageOut(BaseModel):
     px_per_mm: float
     has_rectified: bool = False
     trace: dict = Field(default_factory=dict)
+    note: str = ""
+    processed: bool = False
+    settings: dict | None = None
+    created_at: object = None
+
+
+class ImageUpdate(BaseModel):
+    note: str | None = Field(default=None, max_length=200)
+    processed: bool | None = None
+
+
+class UploadResult(BaseModel):
+    """Several photographs at once: the phone uploads, the desk does the rest."""
+    images: list[ImageOut]
+    failed: list[dict] = Field(default_factory=list)
 
 
 class RectifyRequest(BaseModel):
@@ -217,11 +234,38 @@ class Stroke(BaseModel):
 
 
 class TraceRequest(BaseModel):
+    """Everything the tracing step can be told.
+
+    Defaults are the ones that worked best across the benchmark; each is
+    exposed because real photographs differ in ways no default can cover.
+    """
+
+    engine: Literal["hybrid", "paper", "ai", "grabcut"] = "hybrid"
     rect: tuple[int, int, int, int] | None = None
     strokes: list[Stroke] = Field(default_factory=list)
-    brush: int = Field(default=8, ge=1, le=80)
-    simplify_mm: float = Field(default=0.25, ge=0.0, le=5.0)
+    brush: int = Field(default=10, ge=1, le=120)
+
+    # paper model
+    sensitivity: float = Field(default=2.5, ge=1.0, le=12.0)
+    shadow_tolerance: float = Field(default=0.22, ge=0.0, le=0.9)
+    texture_suppression_mm: float = Field(default=1.2, ge=0.0, le=8.0)
+    neutral_objects: bool = False
+    illumination_order: int = Field(default=2, ge=1, le=2)
+
+    # learned model
+    ai_threshold: float = Field(default=0.5, ge=0.05, le=0.95)
+
+    # shared cleanup
+    refine: bool = True
+    refine_band_mm: float = Field(default=2.5, ge=0.5, le=10.0)
+    close_mm: float = Field(default=0.8, ge=0.0, le=6.0)
+    open_mm: float = Field(default=0.5, ge=0.0, le=6.0)
+    fill_holes: bool = False
+    min_area_mm2: float = Field(default=25.0, ge=0.0, le=20000.0)
     smooth_mm: float = Field(default=0.0, ge=0.0, le=5.0)
+
+    # outline
+    simplify_mm: float = Field(default=0.25, ge=0.0, le=5.0)
     include_holes: bool = True
     min_hole_area_mm2: float = Field(default=4.0, ge=0.0, le=2000.0)
     keep_largest: bool = True
@@ -234,6 +278,8 @@ class TraceResult(BaseModel):
     height_mm: float
     area_mm2: float
     mask_preview: str | None = None
+    engine_used: str = ""
+    took_ms: float = 0.0
 
 
 # --- scans ------------------------------------------------------------------

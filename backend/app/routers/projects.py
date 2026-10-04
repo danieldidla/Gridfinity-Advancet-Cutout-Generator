@@ -23,6 +23,10 @@ def _image_out(image: Image) -> ImageOut:
         px_per_mm=image.px_per_mm,
         has_rectified=bool(image.rectified_key),
         trace=image.trace or {},
+        note=image.note or "",
+        processed=bool(image.processed),
+        settings=image.settings,
+        created_at=image.created_at,
     )
 
 

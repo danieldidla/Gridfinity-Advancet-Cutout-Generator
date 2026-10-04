@@ -36,7 +36,18 @@ RUN if [ "$WITH_SCAN" = "yes" ]; then \
     fi
 
 COPY backend/ ./backend/
+COPY deploy/fetch-models.sh ./deploy/fetch-models.sh
 COPY --from=frontend /build/dist ./frontend/dist
+
+# The tracing model. Baked into the image so a container start needs no
+# network; WITH_AI=no leaves it out and the paper model carries on alone.
+ARG WITH_AI=yes
+ARG AI_MODEL=u2net
+RUN if [ "$WITH_AI" = "yes" ]; then \
+        pip install --no-cache-dir onnxruntime && \
+        bash deploy/fetch-models.sh /opt/models "$AI_MODEL"; \
+    fi
+ENV GCG_SEGMENTATION_MODEL=${AI_MODEL}
 
 RUN useradd --system --uid 10001 --create-home --home-dir /home/gridfinity gridfinity \
     && mkdir -p /data && chown -R gridfinity:gridfinity /data /app

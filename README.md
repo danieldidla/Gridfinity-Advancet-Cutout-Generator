@@ -10,11 +10,16 @@ erfassen, sodass die Tasche der echten Form folgt statt nur dem Umriss.
 
 ## Was die Anwendung kann
 
+- **Fotos sammeln, später verarbeiten.** Am Handy beliebig viele Fotos in einen
+  Pool hochladen, am Rechner in Ruhe daraus Aussparungen machen. Jedes Foto
+  behält Notiz, Status und die zuletzt benutzten Einstellungen.
 - **Maß aus dem Foto.** Das Blatt im Bild dient als Referenz. Die vier Ecken
   werden automatisch erkannt und lassen sich nachziehen; daraus entsteht eine
   entzerrte Ansicht mit bekanntem Maßstab.
-- **Objekt freistellen.** Rahmen ziehen, bei Bedarf mit zwei Pinseln
-  korrigieren. Innenlöcher werden mit übernommen.
+- **Objekt freistellen, schattenfest.** Das Papiermodell rechnet Schatten und
+  ungleiches Licht heraus und kommt mit Karo- und Linienpapier zurecht; ein
+  Erkennungsmodell springt bei blassen Teilen ein. Korrekturpinsel gelten
+  verbindlich und wirken nur dort, wo gemalt wurde.
 - **Mehrere Aussparungen je Bin**, frei verschiebbar und drehbar, mit
   Einrasten auf das 42-mm-Raster.
 - **Viele Parameter:** Rastergröße, Höhe, Wand- und Bodenstärke, Stapelrand,
@@ -34,7 +39,8 @@ erfassen, sodass die Tasche der echten Form folgt statt nur dem Umriss.
 |---|---|---|
 | Backend | Python 3.11, FastAPI, SQLite | Bildverarbeitung und Geometrie liegen in Python; SQLite spart einen weiteren Dienst |
 | Geometrie | `manifold3d` + `trimesh` | robuste, schnelle CSG als reines pip-Wheel – kein OpenCASCADE nötig |
-| Bildverarbeitung | OpenCV (headless) | Blatterkennung, Homographie, GrabCut |
+| Bildverarbeitung | OpenCV (headless) | Blatterkennung, Homographie, Freistellung |
+| Freistellung | eigenes Papiermodell + U²-Net (ONNX) | siehe unten |
 | 3D-Rekonstruktion | OpenCV ChArUco + eigenes Space Carving | läuft auf der CPU, ohne externe Binaries |
 | Frontend | React, TypeScript, Vite, Tailwind | |
 | 3D-Ansicht | three.js über react-three-fiber | |
@@ -64,13 +70,17 @@ Alle Zahlen sind an dieser Installation gemessen, nicht geschätzt.
 
 | Variante | Größe |
 |---|---|
-| ohne 3D-Aufnahme (Vorgabe) | **342 MB** |
-| ohne 3D-Aufnahme, `SLIM=yes` | **321 MB** |
-| mit 3D-Aufnahme (`WITH_SCAN=yes`) | **560 MB** |
-| mit 3D-Aufnahme, `SLIM=yes` | **497 MB** |
+| **alles an (Vorgabe)** | **800 MB** |
+| ohne Erkennungsmodell (`WITH_AI=no`) | 560 MB |
+| ohne 3D-Aufnahme (`WITH_SCAN=no`) | 582 MB |
+| nur Grundfunktionen (beides aus) | 342 MB |
+| kleines Modell (`AI_MODEL=u2netp`) | 637 MB |
 
-Fast alles davon sind NumPy, OpenCV und – beim 3D-Extra – SciPy und
-scikit-image. Der eigene Code samt gebautem Frontend sind 2 MB.
+Die Vorgabe setzt sich zusammen aus: 558 MB Python-Pakete, 67 MB
+onnxruntime, 168 MB Erkennungsmodell und 2 MB eigener Code samt gebautem
+Frontend. Das kleine Modell `u2netp` ist nur 4,4 MB groß und war im Test
+fast gleich gut – wenn der Platz doch knapp wird, ist das die erste
+Stellschraube.
 
 **Systempakete:** rund 5 MB. Nur `python3-venv`, `curl`, `ca-certificates` und
 `nginx`; auf einem üblichen Debian-Template ist davon das meiste schon da.
@@ -115,6 +125,7 @@ bleibt erhalten, die Einzelfotos verschwinden.
 | | |
 |---|---|
 | API, im Betrieb | 250–300 MB |
+| API während einer Freistellung mit KI | +300–400 MB |
 | Worker, untätig | ~100 MB |
 | Worker, Spitze bei 40 Fotos à 2000 px | **339 MB** |
 
@@ -122,9 +133,12 @@ bleibt erhalten, die Einzelfotos verschwinden.
 
 | | Platte | RAM | Kerne |
 |---|---|---|---|
-| nur Fotos | 2 GB | 1 GB | 2 |
-| mit 3D-Aufnahme | 3 GB | 2 GB | 4+ |
+| **alles an** | **3 GB** | 2 GB | 4+ |
+| nur Fotos, ohne KI | 2 GB | 1 GB | 2 |
 | sehr knapp (Frontend extern gebaut) | 1,5 GB | 1 GB | 2 |
+
+Mit 6 GB bist du bequem versorgt, auch mit Platz für viele Projekte und
+Sicherungen.
 
 Die Plattenangaben enthalten das Debian-Grundsystem (je nach Template
 0,3–0,5 GB), den Installationsspitzenwert und Luft für Projekte. Ein
@@ -192,15 +206,17 @@ cd Gridfinity-Advancet-Cutout-Generator
 sudo bash deploy/install.sh
 ```
 
-Das installiert **ohne** die 3D-Aufnahme, weil deren Bibliotheken mehr Platz
-brauchen als alles andere zusammen. Mit:
+Das installiert alles: 3D-Aufnahme und Erkennungsmodell inbegriffen. Wird der
+Platz knapp, lässt sich beides einzeln abschalten:
 
 ```bash
-sudo WITH_SCAN=yes bash deploy/install.sh
+sudo WITH_SCAN=no bash deploy/install.sh        # ohne 3D-Aufnahme   (−220 MB)
+sudo WITH_AI=no   bash deploy/install.sh        # ohne Erkennungsmodell (−235 MB)
+sudo AI_MODEL=u2netp bash deploy/install.sh     # kleines Modell     (−164 MB)
 ```
 
-Das lässt sich jederzeit nachholen – die Anwendung sagt in der Oberfläche
-deutlich, wenn die Funktion fehlt, und alles andere arbeitet davon unberührt.
+Beides lässt sich jederzeit nachholen. Fehlt etwas, sagt die Oberfläche das an
+der Stelle, wo es gebraucht würde; alles andere arbeitet unberührt weiter.
 
 Das Skript installiert die Systempakete, legt das Dienstkonto `gridfinity` an,
 richtet unter `/opt/gridfinity-cutout` eine virtuelle Python-Umgebung ein, baut
@@ -211,14 +227,18 @@ erreichbar.
 Das Skript lässt sich gefahrlos erneut ausführen, um zu aktualisieren:
 
 ```bash
-cd Gridfinity-Advancet-Cutout-Generator && git pull && sudo bash deploy/install.sh
+cd Gridfinity-Advancet-Cutout-Generator && sudo bash deploy/update.sh
 ```
+
+Mehr dazu unter [Aktualisieren](#aktualisieren).
 
 Alle Schalter des Installationsskripts:
 
 | Variable | Vorgabe | Wirkung |
 |---|---|---|
-| `WITH_SCAN` | `no` | 3D-Aufnahme mitinstallieren (+218 MB) |
+| `WITH_SCAN` | `yes` | 3D-Aufnahme (218 MB) |
+| `WITH_AI` | `yes` | Erkennungsmodell für „KI“/„Hybrid“ (235 MB) |
+| `AI_MODEL` | `u2net` | `u2netp` ist 4,4 statt 168 MB und fast gleich gut |
 | `SLIM` | `no` | Test-Suites der Python-Pakete entfernen (−21/−63 MB) |
 | `SKIP_FRONTEND_BUILD` | `no` | Fertiges `frontend/dist` übernehmen, kein Node |
 | `KEEP_BUILD_DEPS` | `no` | `node_modules` und Node behalten (für Entwicklung) |
@@ -282,7 +302,74 @@ podman volume export gridfinity-data > gridfinity-backup-$(date +%F).tar
 
 ---
 
+## Aktualisieren
+
+Projektdaten und Konfiguration liegen außerhalb des Programmverzeichnisses und
+werden von einem Update nicht angefasst. Neue Datenbankspalten einer neuen
+Version werden beim nächsten Start automatisch ergänzt.
+
+### Nativ im LXC
+
+```bash
+cd Gridfinity-Advancet-Cutout-Generator
+sudo bash deploy/update.sh
+```
+
+Das Skript sichert zuerst die Datenbank nach `/var/lib/gridfinity-cutout/backups`
+(die letzten zehn werden behalten), holt den neuen Stand, frischt die
+Installation auf und startet die Dienste neu. Es nennt am Ende den vorherigen
+Stand, damit du zurückkannst:
+
+```bash
+git checkout <alter-stand> && sudo bash deploy/install.sh
+```
+
+Von Hand geht es genauso:
+
+```bash
+git pull && sudo bash deploy/install.sh
+```
+
+`install.sh` ist absichtlich wiederholbar: Es ersetzt nur Programmdateien,
+lässt `/etc/gridfinity-cutout.env` unangetastet und baut das Frontend neu.
+Eingeschaltete Zusatzfunktionen muss man beim Update erneut angeben, sonst
+gelten wieder die Vorgaben:
+
+```bash
+sudo WITH_AI=no bash deploy/update.sh
+```
+
+### Mit Compose
+
+```bash
+cd Gridfinity-Advancet-Cutout-Generator
+git pull
+podman-compose up -d --build
+```
+
+Das Volume `gridfinity-data` bleibt bestehen; nur die Images werden neu gebaut.
+Vorher sichern:
+
+```bash
+podman volume export gridfinity-data > backup-$(date +%F).tar
+```
+
+### Prüfen, ob es geklappt hat
+
+```bash
+curl -s localhost:8000/api/health
+systemctl status gridfinity-cutout gridfinity-cutout-worker
+journalctl -u gridfinity-cutout -n 30 --no-pager
+```
+
+Nach einem Update mit neuen Spalten steht im Protokoll eine Zeile wie
+`Spalte ergänzt: images.note`. Taucht stattdessen ein Fehler über eine
+fehlende Spalte auf, ist der Dienst mit altem Code gestartet – dann einfach
+noch einmal neu starten.
+
 ## Bedienung
+
+![Objekt freistellen, mit den Einstellungen der Erkennung](docs/screenshot-freistellen.png)
 
 | Anordnung | 3D-Aufnahme |
 |---|---|
@@ -291,16 +378,78 @@ podman volume export gridfinity-data > gridfinity-backup-$(date +%F).tar
 ### Aussparung aus einem Foto
 
 1. Objekt auf ein leeres Blatt legen, sodass das **ganze Blatt** im Bild ist.
-   Möglichst senkrecht von oben, gleichmäßiges Licht, keine harten Schatten.
-2. *Foto* → aufnehmen oder hochladen.
-3. Die vier Ecken prüfen und nachziehen, Blattformat wählen, entzerren.
-4. Rahmen um das Objekt ziehen, *Kontur berechnen*. Sitzt etwas nicht, mit
-   „Behalten“ und „Entfernen“ nachbessern.
-5. Übernehmen, danach rechts Tiefe, Spiel und Form einstellen.
+   Möglichst senkrecht von oben. Ein Schatten ist nicht schlimm.
+2. *Foto* → aufnehmen oder hochladen. Du kannst gleich mehrere Fotos
+   hintereinander sammeln und sie später verarbeiten – gut, um am Handy zu
+   fotografieren und am Rechner weiterzumachen.
+3. Im Pool ein Foto antippen. Die vier Blattecken prüfen und nachziehen,
+   Format wählen, entzerren.
+4. Die Kontur wird sofort berechnet. Sitzt etwas nicht, mit „Behalten“ und
+   „Entfernen“ nachbessern oder rechts die Einstellungen anpassen.
+5. Übernehmen – das Foto wird als verarbeitet markiert und du landest wieder
+   im Pool. Danach rechts Tiefe, Spiel und Form der Aussparung einstellen.
 
 Zur Genauigkeit: In der Testreihe wird ein 60 × 40 mm großes Objekt aus einem
 schräg aufgenommenen Foto auf etwa **0,3 mm genau** vermessen. Der größte
 Hebel ist, wie exakt die Blattecken sitzen.
+
+### Wie die Freistellung arbeitet
+
+Das Grundproblem: Ein Schatten ist dunkler als das Papier, ein Objekt auch.
+Wer nur auf die Helligkeit schaut, nimmt den Schatten mit – und genau das
+passiert mit dem üblichen Verfahren.
+
+Der Ausweg steckt in der Physik: Ein Schatten ist **dasselbe Licht, nur
+weniger davon**. Er dämpft alle Farbkanäle um denselben Faktor. Ein Objekt
+hat eine andere Farbe und verschiebt die Kanäle gegeneinander. Die App
+schätzt deshalb zuerst, wie das blanke Papier an jeder Stelle aussähe
+(ein Polynom, robust gefittet, damit Objekt und Schatten es nicht
+verziehen), teilt das Foto dadurch und sieht dann:
+
+- **dunkler, aber farbneutral** → Schatten, wird ignoriert
+- **farblich abweichend** → Objekt
+
+Die Schwelle dafür ist nicht fest verdrahtet, sondern wird aus dem Rauschen
+des Papiers im jeweiligen Foto abgelesen – ein fester Wert kann über
+verschiedene Kameras und Lichtverhältnisse nicht funktionieren.
+
+Karo- und Linienpapier verschwinden vorher über einen Medianfilter, dessen
+Breite du einstellen kannst.
+
+Was so nicht geht: ein **neutralgraues, blasses Teil** auf weißem Papier.
+Das ist dunkler und farblich unauffällig – also per Farbe nicht vom Schatten
+zu unterscheiden. Dafür gibt es das Erkennungsmodell (U²-Net), das Objekte
+unabhängig von der Farbe findet. Es rechnet intern grob, deshalb zieht die
+App seine Kontur anschließend per Watershed auf die echte Kante.
+
+**Verfahren im Einzelnen**
+
+| Verfahren | wofür |
+|---|---|
+| **Hybrid** (Vorgabe) | Papiermodell führt, Modell springt ein, wenn es nichts findet |
+| **Papiermodell** | am genauesten am Rand, blind für neutrale graue Teile |
+| **Nur KI** | findet fast alles, zieht Schatten mit, Kante gröber |
+| **GrabCut** | das alte Verfahren, als Notnagel |
+
+Gemessen an einem Testsatz mit Schatten, Karopapier, Lichtverläufen und
+blassen Teilen:
+
+| | mittlere Überdeckung | Randfehler | schlechtester Fall |
+|---|---|---|---|
+| GrabCut (vorher) | 0,767 | 2,77 mm | 0,588 |
+| Papiermodell allein | 0,868 | **0,06 mm** | 0,000 |
+| **Hybrid (Vorgabe)** | **0,966** | **0,47 mm** | **0,788** |
+
+Das Papiermodell trifft die Kante also auf **sechs Hundertstel Millimeter**,
+scheitert aber am blassen neutralen Teil – genau die Lücke, die der Hybrid
+mit dem Modell schließt.
+
+**Korrigieren.** Meist stimmt die Kontur sofort. Wenn nicht: mit *Behalten*
+über fehlende Stellen malen, mit *Entfernen* über zu viel Erfasstes. Striche
+sind eine verbindliche Vorgabe, keine Anregung – sie wirken nur dort, wo du
+gemalt hast, und *Behalten* nimmt Bereiche hinzu, statt die Auswahl zu
+verschieben. Wird es trotzdem nicht gut, hilft meist die *Empfindlichkeit*
+im rechten Bereich.
 
 ### Die richtige Passung
 
@@ -428,7 +577,7 @@ deploy/          install.sh, nginx.conf, uninstall.sh
 
 **Das Blatt wird nicht erkannt.** Dunkler Untergrund hilft, ebenso das ganze
 Blatt im Bild. Notfalls die Ecken von Hand setzen – das Ergebnis ist genauso
-genau.
+genau. Im Pool zeigt ein Hinweis „Blatt?“, bei welchen Fotos das nötig ist.
 
 **Die Aussparung schneidet nichts weg.** Vermutlich ist *Massiver Block*
 ausgeschaltet; dann liegt die Tasche im ohnehin leeren Innenraum. Die App
@@ -440,6 +589,17 @@ auf glänzendem Papier. Mattes Papier, mehr Licht, ruhig halten.
 **Die Rekonstruktion schlägt fehl.** Mit weniger, dafür besseren Bildern
 beginnen; auf gleichmäßigen Untergrund achten. Der Schwellwert unter
 *Berechnung* steuert, wie viel als Objekt gilt.
+
+**Die Kontur nimmt den Schatten mit.** Dann läuft vermutlich „Nur KI“ oder
+„Neutrale graue Teile mitnehmen“ ist an. Mit „Hybrid“ oder „Papiermodell“ und
+ausgeschalteter Neutral-Option bleibt der Schatten draußen.
+
+**Es wird zu wenig erkannt.** Empfindlichkeit senken (z. B. auf 1,5). Bei
+einem blassen, farblosen Teil hilft „Neutrale graue Teile mitnehmen“ oder das
+Verfahren „Nur KI“.
+
+**Karopapier stört.** „Papierstruktur glätten“ etwas größer als die
+Linienbreite wählen, meist 1–2 mm.
 
 **Die 3D-Aufnahme lässt sich nicht starten.** Dann wurde ohne das Extra
 installiert. Die Oberfläche sagt das im Scan-Dialog; nachrüsten mit
