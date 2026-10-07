@@ -254,3 +254,28 @@ def test_open_top_removes_undercuts(tmp_path):
     widths = [np.ptp(np.asarray(opened.slice(floor + z).to_polygons()[0])[:, 0])
               for z in (2, 10, 18)]
     assert widths[1] >= widths[0] - 0.1 and widths[2] >= widths[1] - 0.1
+
+
+@pytest.mark.parametrize("key", [
+    "../../../etc/passwd",
+    "/etc/passwd",
+    "meshes/../../../etc/passwd",
+    "",
+])
+def test_a_scan_reference_cannot_leave_the_store(tmp_path, key):
+    """The key rides along in the project document, so it is client input."""
+    from app.gridfinity.cutouts import build_cutout
+
+    binspec = S.BinSpec(grid_x=1, grid_y=1, solid=True)
+    cut = S.CutoutSpec(mesh_source=key, depth=10)
+    assert build_cutout(cut, binspec, tmp_path) is None
+
+
+def test_a_valid_scan_reference_still_resolves(tmp_path):
+    from app.gridfinity.cutouts import _resolve_mesh
+
+    target = tmp_path / "meshes" / "abc.npz"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"x")
+    assert _resolve_mesh(tmp_path, "meshes/abc.npz") == target.resolve()
+    assert _resolve_mesh(tmp_path, "meshes/fehlt.npz") is None

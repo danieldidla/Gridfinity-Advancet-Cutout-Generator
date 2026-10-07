@@ -237,8 +237,8 @@ def _mesh_cutout(cut: S.CutoutSpec, binspec: S.BinSpec, z_floor: float,
     """
     if mesh_dir is None or not cut.mesh_source:
         return None
-    path = Path(mesh_dir) / cut.mesh_source
-    if not path.exists():
+    path = _resolve_mesh(Path(mesh_dir), cut.mesh_source)
+    if path is None:
         return None
 
     solid = (_voxel_solid(path, cut) if path.suffix == ".npz"
@@ -265,6 +265,22 @@ def _mesh_cutout(cut: S.CutoutSpec, binspec: S.BinSpec, z_floor: float,
         solid = solid.trim_by_plane((0.0, 0.0, -1.0), -depth)
 
     return solid.translate((0.0, 0.0, z_floor))
+
+
+def _resolve_mesh(root: Path, key: str) -> Path | None:
+    """Turn a storage key into a path, refusing to leave the store.
+
+    The key travels through the browser as part of the project document, so it
+    is input like any other and cannot be joined onto a path unchecked.
+    """
+    if not key or key.startswith(("/", "\\")) or ".." in key.replace("\\", "/").split("/"):
+        return None
+    candidate = (root / key).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 _MESH_CACHE: "OrderedDict[tuple, Manifold]" = OrderedDict()

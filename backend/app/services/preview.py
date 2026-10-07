@@ -129,6 +129,12 @@ def stats(settings: BinSettings, cutouts: list[Cutout]) -> ModelStats:
     )
 
 
+def _mesh_exists(key: str) -> bool:
+    from ..services import storage
+
+    return storage.exists(key)
+
+
 def _cutout_extent(cut: Cutout) -> tuple[float, float, float, float] | None:
     """Where a cutout actually lands on the bin, in bin millimetres.
 
@@ -188,6 +194,11 @@ def _sanity_checks(settings: BinSettings, cutouts: list[Cutout],
                 f"'Durchbruch“ aktivieren.")
         if cut.polygon and len(cut.polygon) < 3 and not cut.mesh_source:
             notes.append(f"'{cut.name}': Kontur unvollständig.")
+        if cut.mesh_source and not _mesh_exists(cut.mesh_source):
+            notes.append(
+                f"„{cut.name}“: Die Datei der 3D-Aufnahme fehlt, deshalb wird "
+                f"nichts ausgeschnitten. Aussparung löschen und im Scan-Dialog "
+                f"erneut „Als Aussparung verwenden“ wählen.")
         extent = _cutout_extent(cut)
         if extent is not None:
             wall = settings.wall_thickness

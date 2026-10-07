@@ -142,6 +142,8 @@ export interface ScanInfo {
   message: string
   shot_count: number
   has_mesh: boolean
+  /** Storage key of the reconstruction. Random, so it can only come from the API. */
+  mesh_source: string | null
 }
 
 export interface ShotInfo {

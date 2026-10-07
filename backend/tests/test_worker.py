@@ -134,3 +134,69 @@ def test_clearance_changes_the_pocket_size(reconstructed):
             mesh_dir=get_settings().data_dir, bin_solid=shell)
         volumes.append(model.volume())
     assert volumes[1] < volumes[0], "mehr Spiel muss mehr Material entfernen"
+
+
+def test_a_scan_the_api_hands_out_can_be_used_as_a_cutout(reconstructed):
+    """The path the interface actually walks, end to end.
+
+    The earlier test read the storage key straight out of the database and so
+    skipped the one step that was broken: the interface only ever sees what the
+    API returns, and it has to be able to build a cutout from that alone.
+    """
+    project, scan, mesh, account = reconstructed
+
+    listed = account.get(f"/api/projects/{project['id']}/scans").json()[0]
+    assert listed["has_mesh"] is True
+    assert listed.get("mesh_source"), "die API nennt die Datei des Scans nicht"
+
+    from app.config import get_settings
+    from app.gridfinity import spec as S
+    from app.gridfinity.assembly import build_model
+    from app.gridfinity.bin_builder import build_bin
+
+    binspec = S.BinSpec(grid_x=2, grid_y=2, height_units=5, solid=True)
+    shell = build_bin(binspec)
+    cut = S.CutoutSpec(mesh_source=listed["mesh_source"], depth=25, clearance=0.4)
+    result = build_model(binspec, [cut], mesh_dir=get_settings().data_dir,
+                         bin_solid=shell)
+
+    removed = shell.volume() - result.volume()
+    assert removed > mesh.volume * 0.5, \
+        f"Die Aussparung hat nur {removed:.0f} mm3 entfernt - der Scan kam nicht an"
+
+
+def test_stats_say_so_when_a_scan_file_is_missing(account):
+    """A cutout that quietly cuts nothing is the worst kind of failure."""
+    stats = account.post("/api/geometry/stats", json={
+        "bin": {"grid_x": 2, "grid_y": 2, "height_units": 4, "solid": True},
+        "cutouts": [{"name": "Scan", "depth": 10,
+                     "mesh_source": "meshes/gibtesnicht.npz"}],
+    }).json()
+    assert any("3D-Aufnahme" in w or "Scan" in w for w in stats["warnings"]), \
+        f"keine Warnung: {stats['warnings']}"
+
+
+def test_an_old_project_with_the_broken_reference_is_repaired(reconstructed):
+    """Projects saved by the earlier version must not need rebuilding by hand."""
+    project, scan, _, account = reconstructed
+
+    broken = {
+        "bin": {"grid_x": 2, "grid_y": 2, "height_units": 5, "solid": True},
+        "cutouts": [{
+            "name": "Alter Scan", "depth": 20,
+            "mesh_source": f"meshes/{scan['id']}.npz",      # never existed
+            "source": {"kind": "scan", "id": scan["id"], "label": "3D-Aufnahme"},
+        }],
+    }
+    current = account.get(f"/api/projects/{project['id']}").json()
+    account.patch(f"/api/projects/{project['id']}",
+                  json={"state": broken, "revision": current["revision"]})
+
+    reloaded = account.get(f"/api/projects/{project['id']}").json()
+    repaired = reloaded["state"]["cutouts"][0]["mesh_source"]
+    assert repaired != f"meshes/{scan['id']}.npz", "Verweis nicht repariert"
+
+    stats = account.post("/api/geometry/stats", json={
+        "bin": reloaded["state"]["bin"], "cutouts": reloaded["state"]["cutouts"],
+    }).json()
+    assert not any("3D-Aufnahme" in w for w in stats["warnings"]), stats["warnings"]

@@ -103,16 +103,37 @@ export default function Editor() {
   }, [store, state.bin])
 
   const addFromScan = useCallback((scan: ScanInfo) => {
+    // The storage key is random, so it has to come from the API. Building it
+    // from the scan id produced a path that never existed, and the cutout then
+    // silently cut nothing.
+    if (!scan.mesh_source) {
+      setViewer((v) => ({
+        ...v,
+        error: 'Diese Aufnahme hat noch kein fertiges Modell.',
+      }))
+      return
+    }
     const height = typeof scan.dimensions?.height_mm === 'number'
       ? scan.dimensions.height_mm as number : 10
+    const room = usableDepth(state.bin)
     store.addCutout({
       name: scan.name,
       polygon: [],
-      mesh_source: `meshes/${scan.id}.npz`,
-      depth: Math.min(usableDepth(state.bin), height),
+      mesh_source: scan.mesh_source,
+      depth: Math.min(room, height),
       clearance: 0.4,
       source: { kind: 'scan', id: scan.id, label: '3D-Aufnahme' },
     })
+    if (height > room + 0.05) {
+      // Silently handing back a shallower pocket than the object is tall is
+      // the kind of thing you only notice after printing.
+      setViewer((v) => ({
+        ...v,
+        error: `Das Objekt ist ${height.toFixed(1)} mm hoch, der Behälter gibt `
+          + `aber nur ${room.toFixed(1)} mm her. Die Tasche wurde entsprechend `
+          + `flacher angelegt – für die volle Tiefe die Höhe des Behälters erhöhen.`,
+      }))
+    }
     setPanel('cutout')
   }, [store, state.bin])
 

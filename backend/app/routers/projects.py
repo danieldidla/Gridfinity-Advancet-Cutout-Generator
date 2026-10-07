@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..db import get_db
 from ..deps import current_user, owned_project
@@ -35,7 +36,49 @@ def _scan_out(scan: Scan) -> ScanOut:
         id=scan.id, name=scan.name, status=scan.status, coverage=scan.coverage,
         dimensions=scan.dimensions, message=scan.message,
         shot_count=len(scan.shots), has_mesh=bool(scan.mesh_key),
+        # the voxel grid is preferred: clearance comes from dilating it, which
+        # a finished surface cannot offer
+        mesh_source=scan.voxel_key or scan.mesh_key,
     )
+
+
+def _repair_scan_links(project: Project) -> bool:
+    """Point stale scan references at the file the scan really has.
+
+    An earlier version had the interface construct the storage key from the
+    scan id, which never matched the random name the worker writes. Projects
+    saved then still carry that reference; rather than make the user rebuild
+    those cutouts by hand, they are repaired on the way out.
+    """
+    state = project.state or {}
+    by_id = {scan.id: (scan.voxel_key or scan.mesh_key) for scan in project.scans}
+    changed = False
+
+    # Copied rather than edited in place. A JSON column is only written back
+    # when the attribute is assigned something the ORM can see is different;
+    # mutating the dict that is already attached and then reassigning it leaves
+    # both sides equal, the UPDATE never happens, and the next refresh quietly
+    # restores the old value.
+    cutouts = [dict(cutout) for cutout in (state.get("cutouts") or [])]
+
+    for cutout in cutouts:
+        source = cutout.get("mesh_source")
+        if not source or storage.exists(source):
+            continue
+        scan_id = (cutout.get("source") or {}).get("id")
+        # the old scheme was literally "meshes/<scan id>.npz"
+        if not scan_id:
+            stem = source.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            scan_id = stem if stem in by_id else None
+        replacement = by_id.get(scan_id or "")
+        if replacement:
+            cutout["mesh_source"] = replacement
+            changed = True
+
+    if changed:
+        project.state = {**state, "cutouts": cutouts}
+        flag_modified(project, "state")
+    return changed
 
 
 def _project_out(project: Project) -> ProjectOut:
@@ -71,7 +114,12 @@ def create_project(payload: ProjectCreate, db: Session = Depends(get_db),
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
-def read_project(project: Project = Depends(owned_project)) -> ProjectOut:
+def read_project(project: Project = Depends(owned_project),
+                 db: Session = Depends(get_db)) -> ProjectOut:
+    if _repair_scan_links(project):
+        db.add(project)
+        db.commit()
+        db.refresh(project)
     return _project_out(project)
 
 

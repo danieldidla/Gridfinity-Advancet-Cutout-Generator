@@ -294,6 +294,10 @@ class ScanOut(BaseModel):
     message: str
     shot_count: int = 0
     has_mesh: bool = False
+    # Where the reconstruction actually landed. Storage keys carry a random
+    # name, so this is the only way the interface can reference the scan; it
+    # must never try to build the path itself.
+    mesh_source: str | None = None
 
 
 class ScanCreate(BaseModel):
